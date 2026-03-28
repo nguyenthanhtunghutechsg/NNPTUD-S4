@@ -57,68 +57,80 @@ router.post('/excel', uploadExcel.single('file'), async function (req, res, next
     let getTitle = products.map(p => p.title)
     let getSku = products.map(p => p.sku)
     let result = [];
-    for (let row = 2; row <= worksheet.rowCount; row++) {
-        let errorsInRow = [];
-        const contentRow = worksheet.getRow(row);
-        let sku = contentRow.getCell(1).value;
-        let title = contentRow.getCell(2).value;
-        let category = contentRow.getCell(3).value;
-        let price = Number.parseInt(contentRow.getCell(4).value);
-        let stock = Number.parseInt(contentRow.getCell(5).value);
-        if (price < 0 || isNaN(price)) {
-            errorsInRow.push("price pahi la so duong")
-        }
-        if (stock < 0 || isNaN(stock)) {
-            errorsInRow.push("stock pahi la so duong")
-        }
-        if (!categoryMap.has(category)) {
-            errorsInRow.push("category khong hop le")
-        }
-        if (getTitle.includes(title)) {
-            errorsInRow.push("Title da ton tai")
-        }
-        if (getSku.includes(sku)) {
-            errorsInRow.push("sku da ton tai")
-        }
-        if (errorsInRow.length > 0) {
-            result.push(errorsInRow)
-            continue;
-        }
+    let sizebatch = 50;
+    let maxCommit = Math.ceil(worksheet.rowCount / sizebatch);
+    for (let commitTime = 0; commitTime < maxCommit; commitTime++) {
+        let start = sizebatch * commitTime + 1
+        let end = Math.min(start + sizebatch - 1, worksheet.rowCount)
         let session = await mongoose.startSession();
         session.startTransaction()
         try {
-            let newProduct = new productModel({
-                sku: sku,
-                title: title,
-                slug: slugify(title,
-                    {
-                        replacement: '-',
-                        remove: undefined,
-                        lower: true,
-                        trim: true
-                    }
-                ), price: price,
-                description: title,
-                category: categoryMap.get(category)
-            })
-            await newProduct.save({ session });
+            let validProduct = [];
+            for (let index = start; index <= end; index++) {
+                let errorsInRow = [];
+                const contentRow = worksheet.getRow(index);
+                let sku = contentRow.getCell(1).value;
+                let title = contentRow.getCell(2).value;
+                let category = contentRow.getCell(3).value;
+                let price = Number.parseInt(contentRow.getCell(4).value);
+                let stock = Number.parseInt(contentRow.getCell(5).value);
+                if (price < 0 || isNaN(price)) {
+                    errorsInRow.push("price pahi la so duong")
+                }
+                if (stock < 0 || isNaN(stock)) {
+                    errorsInRow.push("stock pahi la so duong")
+                }
+                if (!categoryMap.has(category)) {
+                    errorsInRow.push("category khong hop le")
+                }
+                if (getTitle.includes(title)) {
+                    errorsInRow.push("Title da ton tai")
+                }
+                if (getSku.includes(sku)) {
+                    errorsInRow.push("sku da ton tai")
+                }
+                if (errorsInRow.length > 0) {
+                    result.push(errorsInRow)
+                    continue;
+                }
+                let newProduct = new productModel({
+                    sku: sku,
+                    title: title,
+                    slug: slugify(title,
+                        {
+                            replacement: '-',
+                            remove: undefined,
+                            lower: true,
+                            trim: true
+                        }
+                    ), price: price,
+                    description: title,
+                    category: categoryMap.get(category)
+                })
+                validProduct.push(newProduct);
 
-            let newInventory = new inventoryModel({
-                product: newProduct._id,
-                stock: stock
-            })
-            await newInventory.save({ session });
-            await newInventory.populate('product')
-            await session.commitTransaction()
+                // let newInventory = new inventoryModel({
+                //     product: newProduct._id,
+                //     stock: stock
+                // })
+
+                getTitle.push(newProduct.title)
+                getSku.push(newProduct.sku)
+                result.push(newProduct)
+            }
+             await productModel.insertMany(validProduct, { session })
+            await session.commitTransaction();
             await session.endSession()
-            getTitle.push(newProduct.title)
-            getSku.push(newProduct.sku)
-            result.push(newInventory)
         } catch (error) {
-            await session.abortTransaction()
+            await session.abortTransaction();
             await session.endSession()
-            res.push(error.message)
         }
+    }
+    for (let row = 2; row <= worksheet.rowCount; row++) {
+
+
+
+
 
     }
     res.send(result)
