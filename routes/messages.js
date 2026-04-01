@@ -53,7 +53,7 @@ router.get('/:userid', CheckLogin, async function (req, res, next) {
         }]
     }).sort({
         createdAt: -1
-    })
+    }).populate('from to')
     res.send(messages)
 });
 router.post('/', CheckLogin, uploadImage.single('file'), async function (req, res, next) {
